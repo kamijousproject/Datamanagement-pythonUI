@@ -6,6 +6,7 @@ import re
 from datetime import datetime
 from collections import Counter
 import random
+from tkcalendar import DateEntry
 
 
 class PhoneDataManager:
@@ -282,6 +283,20 @@ class PhoneDataManager:
         table = self.manage_table_var.get()
         phone_filter = self.search_phone_var.get().strip()
         dataset_filter = self.search_dataset_var.get().strip()
+        date_from = self.search_date_from_var.get().strip()
+        date_to = self.search_date_to_var.get().strip()
+
+        # ปรับวันที่ให้อยู่ในรูปแบบที่ MySQL ต้องการ (YYYY-MM-DD)
+        try:
+            if date_from:
+                date_from = datetime.strptime(
+                    date_from, "%m/%d/%y").strftime("%Y-%m-%d")
+            if date_to:
+                date_to = datetime.strptime(
+                    date_to, "%m/%d/%y").strftime("%Y-%m-%d")
+        except ValueError:
+            messagebox.showerror("Error", "กรุณากรอกวันที่ในรูปแบบ MM/DD/YY")
+            return
 
         if not table:
             return
@@ -325,6 +340,12 @@ class PhoneDataManager:
             if dataset_filter:
                 query += " AND dataset_name LIKE %s"
                 params.append(f"%{dataset_filter}%")
+            if date_from:
+                query += " AND DATE(receive_date) >= %s"
+                params.append(date_from)
+            if date_to:
+                query += " AND DATE(receive_date) <= %s"
+                params.append(date_to)
 
             cursor.execute(query, params)
             rows = cursor.fetchall()
@@ -671,6 +692,21 @@ class PhoneDataManager:
         ttk.Entry(filter_frame, textvariable=self.search_dataset_var,
                   width=20).pack(side=tk.LEFT, padx=5)
 
+        # เพิ่มฟิลด์สำหรับเลือกวันที่
+        tk.Label(filter_frame, text="เลือกวันที่ (ตั้งแต่):", bg="#f0f2f5",
+                 font=("Kanit", 10)).pack(side=tk.LEFT, padx=(10, 0))
+        self.search_date_from_var = tk.StringVar()
+        self.search_date_from_entry = DateEntry(filter_frame, textvariable=self.search_date_from_var,
+                                                width=20, background='darkblue', foreground='white', borderwidth=2)
+        self.search_date_from_entry.pack(side=tk.LEFT, padx=5)
+
+        tk.Label(filter_frame, text="ถึงวันที่:", bg="#f0f2f5",
+                 font=("Kanit", 10)).pack(side=tk.LEFT, padx=(10, 0))
+        self.search_date_to_var = tk.StringVar()
+        self.search_date_to_entry = DateEntry(filter_frame, textvariable=self.search_date_to_var,
+                                              width=20, background='darkblue', foreground='white', borderwidth=2)
+        self.search_date_to_entry.pack(side=tk.LEFT, padx=5)
+
         ttk.Button(filter_frame, text="ค้นหา", command=self.load_manage_data).pack(
             side=tk.LEFT, padx=10)
         ttk.Button(filter_frame, text="รีเซ็ต",
@@ -695,10 +731,10 @@ class PhoneDataManager:
         main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
 
         left_frame = tk.Frame(main_frame, bg="#ffffff",
-                              bd=1, relief="solid", width=300)
+                            bd=1, relief="solid", width=300)
         center_frame = tk.Frame(main_frame, bg="#ffffff", bd=1, relief="solid")
         right_frame = tk.Frame(main_frame, bg="#ffffff",
-                               bd=1, relief="solid", width=300)
+                            bd=1, relief="solid", width=300)
 
         left_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
         center_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -713,45 +749,52 @@ class PhoneDataManager:
 
         # Top Left: เบอร์ซ้ำในฐานข้อมูล
         tk.Label(top_left_frame, text="เบอร์ซ้ำในฐานข้อมูล", bg="#ffffff",
-                 fg="#1877f2", font=("Kanit", 12, "bold")).pack(pady=5)
+                fg="#1877f2", font=("Kanit", 12, "bold")).pack(pady=5)
         self.duplicate_box = ScrolledText(
             top_left_frame, width=35, height=17, font=("Kanit", 9))
         self.duplicate_box.pack(padx=5, pady=(0, 10))
 
         # Bottom Left: เบอร์ซ้ำในไฟล์
         tk.Label(bottom_left_frame, text="เบอร์ซ้ำกันเองในไฟล์", bg="#ffffff",
-                 fg="#dc3545", font=("Kanit", 12, "bold")).pack(pady=5)
+                fg="#dc3545", font=("Kanit", 12, "bold")).pack(pady=5)
         self.file_duplicate_box = ScrolledText(
             bottom_left_frame, width=35, height=17, font=("Kanit", 9))
         self.file_duplicate_box.pack(padx=5, pady=(0, 10))
 
         # Right: All Numbers
         tk.Label(right_frame, text="เบอร์ที่จะนำเข้า", bg="#ffffff",
-                 fg="#1877f2", font=("Kanit", 12, "bold")).pack(pady=10)
+                fg="#1877f2", font=("Kanit", 12, "bold")).pack(pady=10)
         self.preview_box = ScrolledText(
             right_frame, width=35, height=35, font=("Kanit", 9))
         self.preview_box.pack(padx=5, pady=(0, 10))
 
         # Center: Form
         tk.Label(center_frame, text="รายละเอียดข้อมูล", bg="#ffffff",
-                 fg="#1877f2", font=("Kanit", 14, "bold")).pack(pady=15)
+                fg="#1877f2", font=("Kanit", 14, "bold")).pack(pady=15)
 
         self.create_labeled_entry(
             center_frame, "ชื่อชุดข้อมูล", "entry_dataset")
-        self.create_labeled_entry(center_frame, "วันที่ได้รับเบอร์",
-                                  "entry_date", default=datetime.now().strftime('%Y-%m-%d'))
+        
+        # ใช้ DateEntry สำหรับเลือกวันที่ได้รับเบอร์
+        tk.Label(center_frame, text="วันที่ได้รับเบอร์:", bg="#ffffff",
+                font=("Kanit", 10)).pack(pady=(0, 2))
+        self.entry_date = DateEntry(center_frame, width=20,
+                                    background='darkblue', foreground='white', borderwidth=2)
+        self.entry_date.pack(pady=(0, 10))
+
         self.create_labeled_entry(
             center_frame, "แหล่งที่มาของข้อมูล", "entry_source")
         self.create_labeled_textarea(center_frame, "รายละเอียด", "text_detail")
         self.create_labeled_combobox(
             center_frame, "ประเภทข้อมูล", "data_type_var", ['องค์กร', 'ภายนอก'])
         self.create_labeled_combobox(center_frame, "เลือกชุดข้อมูล (Table)", "table_var", [
-                                     f"phone_data_set_{i}" for i in range(1, 16)])
+                                    f"phone_data_set_{i}" for i in range(1, 16)])
 
         ttk.Button(center_frame, text="เลือกไฟล์เบอร์โทร (.txt)",
-                   command=self.load_files).pack(pady=(10, 5))
+                command=self.load_files).pack(pady=(10, 5))
         ttk.Button(center_frame, text="บันทึกลงฐานข้อมูล",
-                   command=self.save_to_database).pack(pady=(5, 10))
+                command=self.save_to_database).pack(pady=(5, 10))
+
 
     def create_labeled_entry(self, parent, label_text, attr_name, default=""):
         tk.Label(parent, text=label_text, bg="#ffffff",
@@ -931,7 +974,23 @@ class PhoneDataManager:
 
         table = self.table_var.get()
         dataset_name = self.entry_dataset.get().strip()
-        receive_date = self.entry_date.get().strip()
+
+        # รับค่าจาก DateEntry และตรวจสอบว่าได้ค่า valid หรือไม่
+        receive_date = self.entry_date.get()
+
+        # ตรวจสอบว่า receive_date เป็นค่าว่างหรือไม่
+        if not receive_date:
+            messagebox.showerror("Error", "กรุณากรอกวันที่ได้รับเบอร์")
+            return
+
+        # ตรวจสอบว่าเป็นรูปแบบวันที่ที่ถูกต้อง (YYYY-MM-DD)
+        try:
+            # แปลงจากรูปแบบที่ได้จาก DateEntry เป็น YYYY-MM-DD
+            receive_date = datetime.strptime(receive_date, "%m/%d/%y").strftime("%Y-%m-%d")
+        except ValueError:
+            messagebox.showerror("Error", "กรุณากรอกวันที่ในรูปแบบ MM/DD/YY")
+            return
+
         source = self.entry_source.get().strip()
         detail = self.text_detail.get("1.0", tk.END).strip()
         data_type = self.data_type_var.get()
