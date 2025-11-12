@@ -7,6 +7,7 @@ from collections import Counter
 import random
 from tkcalendar import DateEntry
 import sqlite3
+import csv
 
 def create_phone_data_tables():
     conn = sqlite3.connect("phone_data.db")
@@ -56,12 +57,14 @@ class PhoneDataManager:
         self.tab_move = ttk.Frame(tab_control)
         self.tab_export = ttk.Frame(tab_control)
         self.tab_combine = ttk.Frame(tab_control)
+        self.tab_duplicate = ttk.Frame(tab_control)
 
         self.setup_manage_tab()
         self.setup_move_tab()
         self.setup_export_tab()
         # ฟังก์ชันนี้จะตั้งค่า UI สำหรับ tab "รวม 2 ไฟล์" โดยไม่มีคำสั่ง add()
         self.create_combine_tab(tab_control)
+        self.setup_duplicate_tab()
 
         # เรียงลำดับแท็บตามที่ต้องการ
         tab_control.add(self.tab_import, text="นำเข้าข้อมูล")
@@ -69,6 +72,7 @@ class PhoneDataManager:
         tab_control.add(self.tab_move, text="ย้ายข้อมูล")
         tab_control.add(self.tab_export, text="ส่งออกข้อมูล")
         tab_control.add(self.tab_combine, text="รวม 2 ไฟล์")
+        tab_control.add(self.tab_duplicate, text="กรองเบอร์ซ้ำ")
 
         tab_control.pack(expand=1, fill='both')
 
@@ -1035,6 +1039,124 @@ class PhoneDataManager:
         except Exception as e:
             messagebox.showerror("Database Error", str(e))
 
+    def setup_duplicate_tab(self):
+        frame = tk.Frame(self.tab_duplicate, bg="#f0f2f5")
+        frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+
+        # เลือก Table
+        top_frame = tk.Frame(frame, bg="#f0f2f5")
+        top_frame.pack(fill=tk.X, pady=10)
+
+        tk.Label(top_frame, text="เลือก Table:", bg="#f0f2f5",
+                 font=("Kanit", 10)).pack(side=tk.LEFT)
+        self.duplicate_table_var = tk.StringVar()
+        table_combo = ttk.Combobox(top_frame, textvariable=self.duplicate_table_var, state="readonly",
+                                   values=[f"phone_data_set_{i}" for i in range(1, 16)], width=25)
+        table_combo.pack(side=tk.LEFT, padx=10)
+
+        ttk.Button(top_frame, text="แสดงเบอร์ซ้ำ",
+                   command=self.load_duplicate_numbers).pack(side=tk.LEFT, padx=10)
+
+        ttk.Button(top_frame, text="ส่งออกเป็น CSV",
+                   command=self.export_duplicates_to_csv).pack(side=tk.LEFT)
+
+        # Treeview สำหรับแสดงผล
+        tree_frame = tk.Frame(frame, bg="#ffffff", bd=1, relief="solid")
+        tree_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+
+        # Scrollbar
+        tree_scroll = ttk.Scrollbar(tree_frame)
+        tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        columns = ("phone_number", "duplicate_count")
+        self.duplicate_tree = ttk.Treeview(
+            tree_frame, columns=columns, show="headings", yscrollcommand=tree_scroll.set)
+        tree_scroll.config(command=self.duplicate_tree.yview)
+
+        self.duplicate_tree.heading("phone_number", text="เบอร์ที่ซ้ำ")
+        self.duplicate_tree.heading("duplicate_count", text="จำนวนการซ้ำ")
+        self.duplicate_tree.column("phone_number", anchor=tk.CENTER, width=200)
+        self.duplicate_tree.column("duplicate_count", anchor=tk.CENTER, width=150)
+        self.duplicate_tree.pack(fill=tk.BOTH, expand=True)
+
+        # Label สำหรับแสดงจำนวน
+        self.duplicate_count_label = tk.Label(
+            frame, text="แสดง 0 เบอร์ซ้ำ", bg="#f0f2f5", font=("Kanit", 10, "italic"))
+        self.duplicate_count_label.pack(anchor='w', pady=(5, 0))
+
+    def load_duplicate_numbers(self):
+        table = self.duplicate_table_var.get()
+        if not table:
+            messagebox.showerror("Error", "กรุณาเลือก Table")
+            return
+
+        try:
+            conn = self.get_db_connection()
+            cursor = conn.cursor()
+
+            # Query เบอร์ที่ซ้ำ
+            cursor.execute(f"""
+                SELECT phone_number, COUNT(*) as count
+                FROM {table}
+                GROUP BY phone_number
+                HAVING count > 1
+                ORDER BY count DESC, phone_number
+            """)
+            duplicates = cursor.fetchall()
+            conn.close()
+
+            # ล้างข้อมูลเก่า
+            for item in self.duplicate_tree.get_children():
+                self.duplicate_tree.delete(item)
+
+            # แสดงข้อมูล
+            for phone, count in duplicates:
+                self.duplicate_tree.insert("", "end", values=(phone, count))
+
+            self.duplicate_count_label.config(
+                text=f"แสดง {len(duplicates)} เบอร์ซ้ำ")
+
+        except Exception as e:
+            messagebox.showerror("Database Error", str(e))
+
+    def export_duplicates_to_csv(self):
+        table = self.duplicate_table_var.get()
+        if not table:
+            messagebox.showerror("Error", "กรุณาเลือก Table และแสดงเบอร์ซ้ำก่อน")
+            return
+
+        # ตรวจสอบว่ามีข้อมูลใน tree หรือไม่
+        if not self.duplicate_tree.get_children():
+            messagebox.showwarning(
+                "ไม่มีข้อมูล", "กรุณากดปุ่ม 'แสดงเบอร์ซ้ำ' ก่อน")
+            return
+
+        # เลือกตำแหน่งบันทึก
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV Files", "*.csv")],
+            title="บันทึกไฟล์ CSV"
+        )
+        if not file_path:
+            return
+
+        try:
+            import csv
+            with open(file_path, 'w', encoding='utf-8-sig', newline='') as f:
+                writer = csv.writer(f)
+                # เขียน Header
+                writer.writerow(["เบอร์ที่ซ้ำ", "จำนวนการซ้ำ"])
+
+                # เขียนข้อมูลจาก tree
+                for item in self.duplicate_tree.get_children():
+                    values = self.duplicate_tree.item(item)["values"]
+                    writer.writerow(values)
+
+            messagebox.showinfo(
+                "สำเร็จ", f"ส่งออก CSV เรียบร้อยแล้ว\n\nบันทึกที่:\n{file_path}")
+
+        except Exception as e:
+            messagebox.showerror("Export Error", str(e))
 
 
 if __name__ == "__main__":
