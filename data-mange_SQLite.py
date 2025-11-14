@@ -13,7 +13,8 @@ def create_phone_data_tables():
     conn = sqlite3.connect("phone_data.db")
     cursor = conn.cursor()
 
-    for i in range(1, 16):
+    # สร้าง Table 1-16 (Table 16 สำหรับเก็บเบอร์ซ้ำ)
+    for i in range(1, 17):
         table_name = f"phone_data_set_{i}"
         cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS {table_name} (
@@ -139,7 +140,7 @@ class PhoneDataManager:
                  bg="#f0f2f5", font=("Kanit", 10)).pack(side=tk.LEFT)
         self.move_source_table_var = tk.StringVar()
         self.move_source_combo = ttk.Combobox(top_frame, textvariable=self.move_source_table_var, state="readonly",
-                                              values=[f"phone_data_set_{i}" for i in range(1, 16)], width=25)
+                                              values=[f"phone_data_set_{i}" for i in range(1, 17)], width=25)
         self.move_source_combo.pack(side=tk.LEFT, padx=10)
         self.move_source_combo.bind(
             "<<ComboboxSelected>>", self.load_datasets_from_source)
@@ -157,7 +158,7 @@ class PhoneDataManager:
                  bg="#f0f2f5", font=("Kanit", 10)).pack(side=tk.LEFT)
         self.move_dest_table_var = tk.StringVar()
         self.move_dest_combo = ttk.Combobox(dest_frame, textvariable=self.move_dest_table_var, state="readonly",
-                                            values=[f"phone_data_set_{i}" for i in range(1, 16)], width=25)
+                                            values=[f"phone_data_set_{i}" for i in range(1, 17)], width=25)
         self.move_dest_combo.pack(side=tk.LEFT, padx=10)
 
         # Checkbox: ลบข้อมูลต้นทางหลังย้าย
@@ -406,7 +407,7 @@ class PhoneDataManager:
                  font=("Kanit", 10)).pack(side=tk.LEFT)
         self.export_table_var = tk.StringVar()
         table_combo = ttk.Combobox(top_frame, textvariable=self.export_table_var, state="readonly",
-                                   values=[f"phone_data_set_{i}" for i in range(1, 16)], width=25)
+                                   values=[f"phone_data_set_{i}" for i in range(1, 17)], width=25)
         table_combo.pack(side=tk.LEFT, padx=10)
         table_combo.bind("<<ComboboxSelected>>", self.load_export_datasets)
 
@@ -668,7 +669,7 @@ class PhoneDataManager:
                  bg="#f0f2f5", font=("Kanit", 10)).pack(side=tk.LEFT)
         self.manage_table_var = tk.StringVar()
         self.manage_table_combo = ttk.Combobox(filter_frame, textvariable=self.manage_table_var, state="readonly",
-                                               values=[f"phone_data_set_{i}" for i in range(1, 16)], width=25)
+                                               values=[f"phone_data_set_{i}" for i in range(1, 17)], width=25)
         self.manage_table_combo.set("")  # ไม่เลือกค่าเริ่มต้น
         self.manage_table_combo.pack(side=tk.LEFT, padx=5)
 
@@ -780,7 +781,7 @@ class PhoneDataManager:
         self.create_labeled_combobox(
             center_frame, "ประเภทข้อมูล", "data_type_var", ['องค์กร', 'ภายนอก'])
         self.create_labeled_combobox(center_frame, "เลือกชุดข้อมูล (Table)", "table_var", [
-            f"phone_data_set_{i}" for i in range(1, 16)])
+            f"phone_data_set_{i}" for i in range(1, 17)])
 
         ttk.Button(center_frame, text="เลือกไฟล์เบอร์โทร (.txt)",
                    command=self.load_files).pack(pady=(10, 5))
@@ -996,40 +997,81 @@ class PhoneDataManager:
             cursor.execute(f'SELECT phone_number FROM "{table}"')
             existing_numbers = set(row[0] for row in cursor.fetchall())
 
-            new_entries = []
-            duplicates = []
+            # นับจำนวนเบอร์แต่ละหมายเลขในไฟล์
+            from collections import Counter
+            phone_counter = Counter(self.phone_numbers)
+            
+            new_entries = []  # เบอร์ไม่ซ้ำ (ครั้งแรก) ไปใน Table ปกติ
+            duplicate_entries = []  # เบอร์ซ้ำ (ครั้งที่ 2, 3, ...) ไปใน Table 16
+            db_duplicates = []  # เบอร์ที่มีในฐานข้อมูลแล้ว
             times = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            processed_phones = set()  # เก็บเบอร์ที่เคยประมวลผลแล้ว
+            
             for phone in self.phone_numbers:
                 if phone in existing_numbers:
-                    duplicates.append(phone)
-                else:
+                    # เบอร์มีในฐานข้อมูลอยู่แล้ว
+                    db_duplicates.append(phone)
+                elif phone not in processed_phones:
+                    # เบอร์ครั้งแรก (ไม่ซ้ำ) ไปใน Table ปกติ
                     new_entries.append((
                         phone, dataset_name, receive_date, source, detail, data_type, times, 0
                     ))
+                    processed_phones.add(phone)
+                    
+                    # ถ้าเบอร์นี้ซ้ำในไฟล์ เก็บส่วนที่ซ้ำไป Table 16
+                    duplicate_count = phone_counter[phone] - 1  # ลบ 1 ครั้งแรก
+                    for _ in range(duplicate_count):
+                        duplicate_entries.append((
+                            phone, dataset_name, receive_date, source, detail, data_type, times, 0
+                        ))
+                # หากเบอร์ซ้ำในไฟล์และผ่านการประมวลผลแล้ว จะถูกข้ามไป
 
+            # บันทึกเบอร์ไม่ซ้ำลง Table ปกติ
             total = len(new_entries)
-            batch_size = 1000
+            if total > 0:
+                batch_size = 1000
+                for i in range(0, total, batch_size):
+                    batch = new_entries[i:i + batch_size]
+                    cursor.executemany(f"""
+                        INSERT INTO {table} 
+                        (phone_number, dataset_name, receive_date, source, detail, data_type, created_at, is_exported)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, batch)
+                    conn.commit()
 
-            for i in range(0, total, batch_size):
-                batch = new_entries[i:i + batch_size]
-                cursor.executemany(f"""
-                    INSERT INTO {table} 
-                    (phone_number, dataset_name, receive_date, source, detail, data_type, created_at, is_exported)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, batch)
-                conn.commit()
+                    percent = ((i + len(batch)) / total) * 50  # 50% สำหรับ Table ปกติ
+                    progress_var.set(percent)
+                    progress_status.config(text=f"นำเข้า Table ปกติ {i + len(batch)} / {total} เบอร์")
+                    progress_window.update()
 
-                percent = ((i + len(batch)) / total) * 100
-                progress_var.set(percent)
-                progress_status.config(text=f"นำเข้าแล้ว {i + len(batch)} / {total} เบอร์")
-                progress_window.update()
+            # บันทึกเบอร์ซ้ำลง Table 16
+            total_dup = len(duplicate_entries)
+            if total_dup > 0:
+                batch_size = 1000
+                for i in range(0, total_dup, batch_size):
+                    batch = duplicate_entries[i:i + batch_size]
+                    cursor.executemany("""
+                        INSERT INTO phone_data_set_16 
+                        (phone_number, dataset_name, receive_date, source, detail, data_type, created_at, is_exported)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, batch)
+                    conn.commit()
+
+                    percent = 50 + ((i + len(batch)) / total_dup) * 50  # 50-100%
+                    progress_var.set(percent)
+                    progress_status.config(text=f"นำเข้า Table 16 (ซ้ำ) {i + len(batch)} / {total_dup} เบอร์")
+                    progress_window.update()
 
             conn.close()
             progress_window.destroy()
 
             messagebox.showinfo(
                 "Success",
-                f"บันทึกข้อมูลเรียบร้อยแล้ว\nนำเข้า {len(new_entries)} เบอร์\nพบเบอร์ซ้ำ {len(duplicates)} รายการ"
+                f"บันทึกข้อมูลเรียบร้อยแล้ว\n"
+                f"นำเข้า Table ปกติ: {len(new_entries)} เบอร์\n"
+                f"นำเข้า Table 16 (ซ้ำในไฟล์): {len(duplicate_entries)} เบอร์\n"
+                f"ซ้ำในฐานข้อมูล (ข้าม): {len(db_duplicates)} เบอร์"
             )
 
             self.preview_box.delete("1.0", tk.END)
@@ -1051,7 +1093,7 @@ class PhoneDataManager:
                  font=("Kanit", 10)).pack(side=tk.LEFT)
         self.duplicate_table_var = tk.StringVar()
         table_combo = ttk.Combobox(top_frame, textvariable=self.duplicate_table_var, state="readonly",
-                                   values=[f"phone_data_set_{i}" for i in range(1, 16)], width=25)
+                                   values=[f"phone_data_set_{i}" for i in range(1, 17)], width=25)
         table_combo.pack(side=tk.LEFT, padx=10)
 
         ttk.Button(top_frame, text="แสดงเบอร์ซ้ำ",
