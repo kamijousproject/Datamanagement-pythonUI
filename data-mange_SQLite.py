@@ -8,6 +8,9 @@ import random
 from tkcalendar import DateEntry
 import sqlite3
 import csv
+import os
+
+import pandas as pd
 
 def create_phone_data_tables():
     conn = sqlite3.connect("phone_data.db")
@@ -416,8 +419,15 @@ class PhoneDataManager:
             frame, bg="#ffffff", bd=1, relief="solid")
         self.export_dataset_frame.pack(fill=tk.BOTH, expand=True, pady=10)
 
-        ttk.Button(frame, text="ส่งออก",
-                   command=self.export_selected_datasets).pack(pady=(5, 5))
+        # ปุ่มสำหรับส่งออกและลบชุดข้อมูลที่เลือก
+        button_frame = tk.Frame(frame, bg="#f0f2f5")
+        button_frame.pack(fill=tk.X, pady=(5, 5))
+
+        ttk.Button(button_frame, text="ส่งออก",
+                   command=self.export_selected_datasets).pack(side=tk.LEFT, padx=(0, 10))
+
+        ttk.Button(button_frame, text="ลบชุดข้อมูลที่เลือก",
+                   command=self.delete_selected_datasets).pack(side=tk.LEFT)
 
         # แทรกเบอร์สุ่ม
         self.inject_extra_var = tk.BooleanVar(value=False)
@@ -525,6 +535,54 @@ class PhoneDataManager:
 
         except Exception as e:
             messagebox.showerror("Export Error", str(e))
+
+    def delete_selected_datasets(self):
+        """ลบชุดข้อมูลทั้งหมดที่ถูกติ๊กออกจาก Table ที่เลือก"""
+        # รวบรวมชุดข้อมูลที่เลือก
+        selected_names = [name for name, var in self.export_dataset_vars.items() if var.get()]
+
+        if not selected_names:
+            messagebox.showwarning(
+                "ไม่พบข้อมูล", "กรุณาติ๊กเลือกชุดข้อมูลที่ต้องการลบ")
+            return
+
+        table = self.export_table_var.get()
+        if not table:
+            messagebox.showerror("Error", "กรุณาเลือก Table ก่อนลบชุดข้อมูล")
+            return
+
+        # แสดงกล่องยืนยัน
+        names_text = "\n".join(f"- {name}" for name in selected_names)
+        confirm = messagebox.askyesno(
+            "ยืนยันการลบ",
+            "คุณต้องการลบชุดข้อมูลต่อไปนี้ออกจากตารางนี้ทั้งหมดหรือไม่?\n\n"
+            f"Table: {table}\n\n{names_text}\n\nคำเตือน: ไม่สามารถกู้คืนได้",
+        )
+        if not confirm:
+            return
+
+        try:
+            conn = self.get_db_connection()
+            cursor = conn.cursor()
+
+            # ลบข้อมูลตาม dataset_name ที่เลือก
+            for name in selected_names:
+                cursor.execute(
+                    f"DELETE FROM {table} WHERE dataset_name = ?",
+                    (name,),
+                )
+
+            conn.commit()
+            conn.close()
+
+            messagebox.showinfo(
+                "สำเร็จ", "ลบชุดข้อมูลที่เลือกเรียบร้อยแล้ว")
+
+            # โหลดรายการชุดข้อมูลใหม่
+            self.load_export_datasets()
+
+        except Exception as e:
+            messagebox.showerror("Database Error", str(e))
 
     def load_export_datasets(self, event=None):
         for widget in self.export_dataset_frame.winfo_children():
@@ -745,21 +803,45 @@ class PhoneDataManager:
                  fg="#1877f2", font=("Kanit", 12, "bold")).pack(pady=5)
         self.duplicate_box = ScrolledText(
             top_left_frame, width=35, height=17, font=("Kanit", 9))
-        self.duplicate_box.pack(padx=5, pady=(0, 10))
+        self.duplicate_box.pack(padx=5, pady=(0, 2))
+        self.duplicate_count_label = tk.Label(
+            top_left_frame,
+            text="แสดง 0 เบอร์",
+            bg="#ffffff",
+            fg="#555555",
+            font=("Kanit", 9, "italic")
+        )
+        self.duplicate_count_label.pack(pady=(0, 8), anchor="w", padx=8)
 
         # Bottom Left: เบอร์ซ้ำในไฟล์
         tk.Label(bottom_left_frame, text="เบอร์ซ้ำกันเองในไฟล์", bg="#ffffff",
                  fg="#dc3545", font=("Kanit", 12, "bold")).pack(pady=5)
         self.file_duplicate_box = ScrolledText(
             bottom_left_frame, width=35, height=17, font=("Kanit", 9))
-        self.file_duplicate_box.pack(padx=5, pady=(0, 10))
+        self.file_duplicate_box.pack(padx=5, pady=(0, 2))
+        self.file_duplicate_count_label = tk.Label(
+            bottom_left_frame,
+            text="แสดง 0 เบอร์",
+            bg="#ffffff",
+            fg="#555555",
+            font=("Kanit", 9, "italic")
+        )
+        self.file_duplicate_count_label.pack(pady=(0, 8), anchor="w", padx=8)
 
         # Right: All Numbers
         tk.Label(right_frame, text="เบอร์ที่จะนำเข้า", bg="#ffffff",
                  fg="#1877f2", font=("Kanit", 12, "bold")).pack(pady=10)
         self.preview_box = ScrolledText(
             right_frame, width=35, height=35, font=("Kanit", 9))
-        self.preview_box.pack(padx=5, pady=(0, 10))
+        self.preview_box.pack(padx=5, pady=(0, 2))
+        self.preview_count_label = tk.Label(
+            right_frame,
+            text="แสดง 0 เบอร์",
+            bg="#ffffff",
+            fg="#555555",
+            font=("Kanit", 9, "italic")
+        )
+        self.preview_count_label.pack(pady=(0, 8), anchor="w", padx=8)
 
         # Center: Form
         tk.Label(center_frame, text="รายละเอียดข้อมูล", bg="#ffffff",
@@ -783,7 +865,7 @@ class PhoneDataManager:
         self.create_labeled_combobox(center_frame, "เลือกชุดข้อมูล (Table)", "table_var", [
             f"phone_data_set_{i}" for i in range(1, 17)])
 
-        ttk.Button(center_frame, text="เลือกไฟล์เบอร์โทร (.txt)",
+        ttk.Button(center_frame, text="เลือกไฟล์เบอร์โทร (.txt / .csv / .xls / .xlsx)",
                    command=self.load_files).pack(pady=(10, 5))
         ttk.Button(center_frame, text="บันทึกลงฐานข้อมูล",
                    command=self.save_to_database).pack(pady=(5, 10))
@@ -815,12 +897,24 @@ class PhoneDataManager:
 
     def load_files(self):
         self.file_paths = filedialog.askopenfilenames(
-            filetypes=[("Text Files", "*.txt")])
+            filetypes=[
+                ("Phone Files", "*.txt *.csv *.xls *.xlsx"),
+                ("Text Files", "*.txt"),
+                ("CSV Files", "*.csv"),
+                ("Excel Files", "*.xls *.xlsx"),
+            ])
         self.phone_numbers = []
 
         self.preview_box.delete("1.0", tk.END)
         self.duplicate_box.delete("1.0", tk.END)
         self.file_duplicate_box.delete("1.0", tk.END)
+        # รีเซ็ตจำนวนในแต่ละกล่อง
+        if hasattr(self, "duplicate_count_label"):
+            self.duplicate_count_label.config(text="แสดง 0 เบอร์")
+        if hasattr(self, "file_duplicate_count_label"):
+            self.file_duplicate_count_label.config(text="แสดง 0 เบอร์")
+        if hasattr(self, "preview_count_label"):
+            self.preview_count_label.config(text="แสดง 0 เบอร์")
 
         if not self.file_paths:
             return
@@ -842,28 +936,71 @@ class PhoneDataManager:
         progress_status.pack()
         progress_window.update()
 
-        # Step 1: Load and normalize numbers
+        # Step 1: Load and normalize numbers (รองรับ .txt, .csv, .xls, .xlsx)
         raw_numbers = []
-        total_lines = sum(
-            1 for path in self.file_paths for _ in open(path, encoding='utf-8'))
+
+        # นับจำนวนแถวทั้งหมดสำหรับ Progress Bar
+        total_lines = 0
+        for path in self.file_paths:
+            ext = os.path.splitext(path)[1].lower()
+            try:
+                if ext in [".txt", ".csv"]:
+                    with open(path, encoding="utf-8") as f:
+                        for _ in f:
+                            total_lines += 1
+                elif ext in [".xls", ".xlsx"]:
+                    df_preview = pd.read_excel(path, header=None)
+                    total_lines += len(df_preview.index)
+            except Exception:
+                # ถ้าอ่านไม่ได้จะข้ามไฟล์นั้นไป
+                continue
+
+        if total_lines == 0:
+            progress_window.destroy()
+            messagebox.showerror("Error", "ไม่สามารถอ่านข้อมูลจากไฟล์ที่เลือกได้")
+            return
 
         count = 0
         for file_path in self.file_paths:
-            with open(file_path, 'r', encoding='utf-8') as file:
-                for line in file:
-                    phone = line.strip()
-                    phone = self.normalize_phone(phone)
-                    if phone:
-                        raw_numbers.append(phone)
-                    count += 1
-                    progress_percent = (count / total_lines) * 30  # 30% weight
-                    progress_var.set(progress_percent)
-                    progress_status.config(
-                        text=f"กำลังโหลด {count} / {total_lines} บรรทัด")
-                    progress_window.update()
+            ext = os.path.splitext(file_path)[1].lower()
+            try:
+                if ext in [".txt", ".csv"]:
+                    with open(file_path, 'r', encoding='utf-8') as file:
+                        for line in file:
+                            phone = line.strip()
+                            phone = self.normalize_phone(phone)
+                            if phone:
+                                raw_numbers.append(phone)
+                            count += 1
+                            progress_percent = (count / total_lines) * 30  # 30% weight
+                            progress_var.set(progress_percent)
+                            progress_status.config(
+                                text=f"กำลังโหลด {count} / {total_lines} แถว")
+                            progress_window.update()
+                elif ext in [".xls", ".xlsx"]:
+                    df = pd.read_excel(file_path, header=None)
+                    for _, row in df.iterrows():
+                        value = row.iloc[0]
+                        phone = str(value).strip() if value is not None else ""
+                        phone = self.normalize_phone(phone)
+                        if phone:
+                            raw_numbers.append(phone)
+                        count += 1
+                        progress_percent = (count / total_lines) * 30  # 30% weight
+                        progress_var.set(progress_percent)
+                        progress_status.config(
+                            text=f"กำลังโหลด {count} / {total_lines} แถว")
+                        progress_window.update()
+            except Exception as e:
+                messagebox.showerror("File Error", f"ไม่สามารถอ่านไฟล์:\n{file_path}\n\n{str(e)}")
+                progress_window.destroy()
+                return
 
         self.phone_numbers = raw_numbers
         self.preview_box.insert(tk.END, "\n".join(self.phone_numbers))
+
+        # อัปเดตจำนวนเบอร์ในกล่องแสดงตัวอย่าง
+        self.update_import_counts()
 
         # Step 2: Check duplicates in file (weight 20%)
         progress_status.config(text="กำลังตรวจสอบเบอร์ซ้ำในไฟล์...")
@@ -905,6 +1042,8 @@ class PhoneDataManager:
 
                 conn.close()
                 self.duplicate_box.insert(tk.END, "\n".join(duplicates))
+                # อัปเดตจำนวนเบอร์ซ้ำในฐานข้อมูล
+                self.update_import_counts()
             except Exception as e:
                 progress_window.destroy()
                 messagebox.showerror("Database Error", str(e))
@@ -918,6 +1057,31 @@ class PhoneDataManager:
         internal_duplicates = [num for num,
                                count in counter.items() if count > 1]
         self.file_duplicate_box.insert(tk.END, "\n".join(internal_duplicates))
+        # อัปเดตจำนวนเบอร์ซ้ำในไฟล์
+        self.update_import_counts()
+
+    def update_import_counts(self):
+        """อัปเดตจำนวนเบอร์ใน 3 กล่องของแท็บนำเข้าข้อมูล"""
+        try:
+            # นับจากข้อมูลในแต่ละกล่อง
+            preview_text = self.preview_box.get("1.0", tk.END).strip()
+            preview_count = len(preview_text.splitlines()) if preview_text else 0
+
+            dup_db_text = self.duplicate_box.get("1.0", tk.END).strip()
+            dup_db_count = len(dup_db_text.splitlines()) if dup_db_text else 0
+
+            dup_file_text = self.file_duplicate_box.get("1.0", tk.END).strip()
+            dup_file_count = len(dup_file_text.splitlines()) if dup_file_text else 0
+
+            if hasattr(self, "preview_count_label"):
+                self.preview_count_label.config(text=f"แสดง {preview_count} เบอร์")
+            if hasattr(self, "duplicate_count_label"):
+                self.duplicate_count_label.config(text=f"แสดง {dup_db_count} เบอร์")
+            if hasattr(self, "file_duplicate_count_label"):
+                self.file_duplicate_count_label.config(text=f"แสดง {dup_file_count} เบอร์")
+        except Exception:
+            # ไม่ต้องให้โปรแกรมล้ม ถ้ามีปัญหาในการอ่านค่า
+            pass
 
     def show_duplicates_preview(self):
         table = self.table_var.get()
@@ -1085,16 +1249,12 @@ class PhoneDataManager:
         frame = tk.Frame(self.tab_duplicate, bg="#f0f2f5")
         frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
 
-        # เลือก Table
+        # ส่วนควบคุมด้านบน (ใช้ Table 16 ตายตัว)
         top_frame = tk.Frame(frame, bg="#f0f2f5")
         top_frame.pack(fill=tk.X, pady=10)
 
-        tk.Label(top_frame, text="เลือก Table:", bg="#f0f2f5",
-                 font=("Kanit", 10)).pack(side=tk.LEFT)
-        self.duplicate_table_var = tk.StringVar()
-        table_combo = ttk.Combobox(top_frame, textvariable=self.duplicate_table_var, state="readonly",
-                                   values=[f"phone_data_set_{i}" for i in range(1, 17)], width=25)
-        table_combo.pack(side=tk.LEFT, padx=10)
+        tk.Label(top_frame, text="Table: phone_data_set_16 (เก็บเบอร์ซ้ำ)", bg="#f0f2f5",
+                 font=("Kanit", 10, "bold")).pack(side=tk.LEFT)
 
         ttk.Button(top_frame, text="แสดงเบอร์ซ้ำ",
                    command=self.load_duplicate_numbers).pack(side=tk.LEFT, padx=10)
@@ -1127,16 +1287,13 @@ class PhoneDataManager:
         self.duplicate_count_label.pack(anchor='w', pady=(5, 0))
 
     def load_duplicate_numbers(self):
-        table = self.duplicate_table_var.get()
-        if not table:
-            messagebox.showerror("Error", "กรุณาเลือก Table")
-            return
+        table = "phone_data_set_16"
 
         try:
             conn = self.get_db_connection()
             cursor = conn.cursor()
 
-            # Query เบอร์ที่ซ้ำ
+            # Query เบอร์ที่ซ้ำจาก Table 16
             cursor.execute(f"""
                 SELECT phone_number, COUNT(*) as count
                 FROM {table}
@@ -1162,10 +1319,7 @@ class PhoneDataManager:
             messagebox.showerror("Database Error", str(e))
 
     def export_duplicates_to_csv(self):
-        table = self.duplicate_table_var.get()
-        if not table:
-            messagebox.showerror("Error", "กรุณาเลือก Table และแสดงเบอร์ซ้ำก่อน")
-            return
+        table = "phone_data_set_16"
 
         # ตรวจสอบว่ามีข้อมูลใน tree หรือไม่
         if not self.duplicate_tree.get_children():
