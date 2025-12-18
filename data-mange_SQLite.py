@@ -145,10 +145,28 @@ class PhoneDataManager:
         self.move_source_combo.bind(
             "<<ComboboxSelected>>", self.load_datasets_from_source)
 
-        # Dataset list (checkboxes)
-        self.dataset_checkbox_frame = tk.Frame(
-            frame, bg="#ffffff", bd=1, relief="solid")
-        self.dataset_checkbox_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        # Dataset list (checkboxes) พร้อม scrollbar
+        dataset_container = tk.Frame(frame, bg="#ffffff", bd=1, relief="solid")
+        dataset_container.pack(fill=tk.BOTH, expand=True, pady=10)
+
+        # สร้าง Canvas และ Scrollbar
+        self.move_canvas = tk.Canvas(dataset_container, bg="#ffffff", highlightthickness=0)
+        self.move_scrollbar = ttk.Scrollbar(dataset_container, orient="vertical", command=self.move_canvas.yview)
+        self.dataset_checkbox_frame = tk.Frame(self.move_canvas, bg="#ffffff")
+
+        # ผูก scrollbar กับ canvas
+        self.move_canvas.configure(yscrollcommand=self.move_scrollbar.set)
+
+        # จัดวาง scrollbar และ canvas
+        self.move_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.move_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # สร้าง window บน canvas สำหรับ frame
+        self.move_canvas_window = self.move_canvas.create_window((0, 0), window=self.dataset_checkbox_frame, anchor="nw")
+
+        # อัปเดต scrollregion เมื่อขนาด frame เปลี่ยน
+        self.dataset_checkbox_frame.bind("<Configure>", self._on_move_frame_configure)
+        self.move_canvas.bind("<Configure>", self._on_move_canvas_configure)
 
         # Destination table dropdown
         dest_frame = tk.Frame(frame, bg="#f0f2f5")
@@ -411,10 +429,31 @@ class PhoneDataManager:
         table_combo.pack(side=tk.LEFT, padx=10)
         table_combo.bind("<<ComboboxSelected>>", self.load_export_datasets)
 
-        # กรอบชุดข้อมูล
-        self.export_dataset_frame = tk.Frame(
-            frame, bg="#ffffff", bd=1, relief="solid")
-        self.export_dataset_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        # กรอบชุดข้อมูล พร้อม scrollbar
+        dataset_container = tk.Frame(frame, bg="#ffffff", bd=1, relief="solid")
+        dataset_container.pack(fill=tk.BOTH, expand=True, pady=10)
+
+        # สร้าง Canvas และ Scrollbar
+        self.export_canvas = tk.Canvas(dataset_container, bg="#ffffff", highlightthickness=0)
+        self.export_scrollbar = ttk.Scrollbar(dataset_container, orient="vertical", command=self.export_canvas.yview)
+        self.export_dataset_frame = tk.Frame(self.export_canvas, bg="#ffffff")
+
+        # ผูก scrollbar กับ canvas
+        self.export_canvas.configure(yscrollcommand=self.export_scrollbar.set)
+
+        # จัดวาง scrollbar และ canvas
+        self.export_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.export_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # สร้าง window บน canvas สำหรับ frame
+        self.export_canvas_window = self.export_canvas.create_window((0, 0), window=self.export_dataset_frame, anchor="nw")
+
+        # อัปเดต scrollregion เมื่อขนาด frame เปลี่ยน
+        self.export_dataset_frame.bind("<Configure>", self._on_export_frame_configure)
+        self.export_canvas.bind("<Configure>", self._on_export_canvas_configure)
+
+        # รองรับ scroll ด้วย mouse wheel
+        self.export_canvas.bind_all("<MouseWheel>", self._on_export_mousewheel)
 
         # ปุ่มสำหรับส่งออกและลบชุดข้อมูลที่เลือก
         button_frame = tk.Frame(frame, bg="#f0f2f5")
@@ -642,6 +681,26 @@ class PhoneDataManager:
             entry_var.set("")
             self.export_warnings[name].config(text="")
 
+    def _on_export_frame_configure(self, event):
+        """อัปเดต scrollregion เมื่อขนาด frame เปลี่ยน"""
+        self.export_canvas.configure(scrollregion=self.export_canvas.bbox("all"))
+
+    def _on_export_canvas_configure(self, event):
+        """ปรับขนาด frame ให้เต็มความกว้างของ canvas"""
+        self.export_canvas.itemconfig(self.export_canvas_window, width=event.width)
+
+    def _on_export_mousewheel(self, event):
+        """รองรับ scroll ด้วย mouse wheel"""
+        self.export_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def _on_move_frame_configure(self, event):
+        """อัปเดต scrollregion เมื่อขนาด frame เปลี่ยน (Move tab)"""
+        self.move_canvas.configure(scrollregion=self.move_canvas.bbox("all"))
+
+    def _on_move_canvas_configure(self, event):
+        """ปรับขนาด frame ให้เต็มความกว้างของ canvas (Move tab)"""
+        self.move_canvas.itemconfig(self.move_canvas_window, width=event.width)
+
     def export_selected_data(self):
         selected = self.export_table.get_children()
         data_type = self.export_data_type_var.get()
@@ -760,13 +819,28 @@ class PhoneDataManager:
         ttk.Button(filter_frame, text="รีเซ็ต",
                    command=self.reset_manage_filters).pack(side=tk.LEFT)
 
+        # Treeview พร้อม scrollbar
+        tree_container = tk.Frame(frame)
+        tree_container.pack(fill=tk.BOTH, expand=True)
+
         columns = ("id", "phone_number", "dataset_name",
                    "receive_date", "source", "data_type", "created_at")
-        self.tree = ttk.Treeview(frame, columns=columns, show="headings")
+        self.tree = ttk.Treeview(tree_container, columns=columns, show="headings")
         for col in columns:
             self.tree.heading(col, text=col)
             self.tree.column(col, anchor=tk.CENTER, width=120)
-        self.tree.pack(fill=tk.BOTH, expand=True)
+
+        # Scrollbars สำหรับ Treeview
+        tree_scroll_y = ttk.Scrollbar(tree_container, orient="vertical", command=self.tree.yview)
+        tree_scroll_x = ttk.Scrollbar(tree_container, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(yscrollcommand=tree_scroll_y.set, xscrollcommand=tree_scroll_x.set)
+
+        # จัดวาง Treeview และ scrollbars
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        tree_scroll_y.grid(row=0, column=1, sticky="ns")
+        tree_scroll_x.grid(row=1, column=0, sticky="ew")
+        tree_container.grid_rowconfigure(0, weight=1)
+        tree_container.grid_columnconfigure(0, weight=1)
 
         self.count_label = tk.Label(
             frame, text="แสดงทั้งหมด 0 รายการ, ซ้ำ 0 รายการ", bg="#f0f2f5", font=("Kanit", 10, "italic"))
