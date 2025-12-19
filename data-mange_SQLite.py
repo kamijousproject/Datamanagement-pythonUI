@@ -312,7 +312,29 @@ class PhoneDataManager:
     def reset_manage_filters(self):
         self.search_phone_var.set("")
         self.search_dataset_var.set("")
+        self.search_dataset_combo['values'] = []
         self.load_manage_data()
+
+    def load_dataset_names_for_filter(self, event=None):
+        """โหลดรายชื่อชุดข้อมูลจาก Table ที่เลือกมาแสดงใน dropdown"""
+        table = self.manage_table_var.get()
+        if not table:
+            self.search_dataset_combo['values'] = []
+            return
+
+        try:
+            conn = self.get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute(f"SELECT DISTINCT dataset_name FROM {table} ORDER BY dataset_name")
+            dataset_names = [row[0] for row in cursor.fetchall()]
+            conn.close()
+
+            # เพิ่มตัวเลือก "ทั้งหมด" ไว้ด้านบน
+            self.search_dataset_combo['values'] = [""] + dataset_names
+            self.search_dataset_var.set("")  # รีเซ็ตค่าที่เลือก
+
+        except Exception as e:
+            messagebox.showerror("Database Error", str(e))
 
     def load_manage_data(self):
         table = self.manage_table_var.get()
@@ -786,6 +808,7 @@ class PhoneDataManager:
                                                values=[f"phone_data_set_{i}" for i in range(1, 17)], width=25)
         self.manage_table_combo.set("")  # ไม่เลือกค่าเริ่มต้น
         self.manage_table_combo.pack(side=tk.LEFT, padx=5)
+        self.manage_table_combo.bind("<<ComboboxSelected>>", self.load_dataset_names_for_filter)
 
         tk.Label(filter_frame, text="ค้นหาเบอร์:", bg="#f0f2f5",
                  font=("Kanit", 10)).pack(side=tk.LEFT, padx=(10, 0))
@@ -796,8 +819,9 @@ class PhoneDataManager:
         tk.Label(filter_frame, text="ชื่อชุดข้อมูล:", bg="#f0f2f5",
                  font=("Kanit", 10)).pack(side=tk.LEFT, padx=(10, 0))
         self.search_dataset_var = tk.StringVar()
-        ttk.Entry(filter_frame, textvariable=self.search_dataset_var,
-                  width=20).pack(side=tk.LEFT, padx=5)
+        self.search_dataset_combo = ttk.Combobox(filter_frame, textvariable=self.search_dataset_var,
+                                                  width=20, state="readonly")
+        self.search_dataset_combo.pack(side=tk.LEFT, padx=5)
 
         # เพิ่มฟิลด์สำหรับเลือกวันที่
         tk.Label(filter_frame, text="เลือกวันที่ (ตั้งแต่):", bg="#f0f2f5",
